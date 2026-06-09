@@ -199,3 +199,15 @@ For personal use.
 ## ⭐ Support
 
 Jika project ini membantu, jangan lupa ⭐ repository ini.
+
+---
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=hellboii27%2FMoneyTrackerPro&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=hellboii27/MoneyTrackerPro&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=hellboii27/MoneyTrackerPro&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=hellboii27/MoneyTrackerPro&type=date&legend=top-left" />
+ </picture>
+</a>
