@@ -1,17 +1,71 @@
 /**
- * Money Tracker Pro v4.4.0 | © 2026 Bayu Wicaksono
+ * Money Tracker Pro v5.0.0 | © 2026 Bayu Wicaksono
  */
 
-// [CONFIG] Konfigurasi global spreadsheet dan zona waktu
-const SS = SpreadsheetApp.getActiveSpreadsheet();
-const SH_TRX = SS.getSheetByName('Transaksi');
-const SH_WAL = SS.getSheetByName('Wallets');
+let SS;
+let SH_TRX;
+let SH_WAL;
+let SH_USR;
+let SH_CAT;
+let APP_SETUP_RUNNING = false;
 const TZ = Session.getScriptTimeZone();
 const CACHE = CacheService.getScriptCache();
-const WALLET_CACHE_KEY = "wallet_balances";
-const DASH_CACHE_PREFIX = "dash_cache_";
+const WALLET_CACHE_KEY = "wallet_balances_v2";
+const DASH_CACHE_PREFIX = "dash_cache_v2";
+const DEFAULT_USER_PIN = "1234";
+const DEFAULT_USER_NAME = "Saya";
 
-// [API] Handle request web app entry point
+function ensureAppSetup() {
+  if (APP_SETUP_RUNNING) return;
+  APP_SETUP_RUNNING = true;
+  try {
+    if (!SS) {
+      SS = SpreadsheetApp.getActiveSpreadsheet();
+    }
+  SH_TRX = SS.getSheetByName('Transaksi') || SS.insertSheet('Transaksi');
+  SH_WAL = SS.getSheetByName('Wallets') || SS.insertSheet('Wallets');
+  SH_USR = SS.getSheetByName('Users') || SS.insertSheet('Users');
+  SH_CAT = SS.getSheetByName('Kategori') || SS.insertSheet('Kategori');
+
+    ensureHeaders(SH_TRX, ['tgl', 'tipe', 'kategori', 'wallet', 'nominal', 'catatan', 'trxId', 'userId']);
+    ensureHeaders(SH_WAL, ['name', 'balance', 'userId']);
+    ensureHeaders(SH_USR, ['id', 'name', 'pin', 'createdAt', 'isAdmin']);
+    ensureHeaders(SH_CAT, ['name', 'type', 'userId']);
+
+    if (SH_USR.getLastRow() <= 1) {
+      SH_USR.appendRow([generateId(), DEFAULT_USER_NAME, DEFAULT_USER_PIN, new Date(), true]);
+    }
+    if (SH_WAL.getLastRow() <= 1) {
+      const uid = getDefaultUserId();
+      SH_WAL.appendRow(['Kas', 0, uid]);
+    }
+    if (SH_CAT.getLastRow() <= 1) {
+      const uid = getDefaultUserId();
+      SH_CAT.appendRow(['Makan & Minum', 'Pengeluaran', uid]);
+      SH_CAT.appendRow(['Transportasi', 'Pengeluaran', uid]);
+      SH_CAT.appendRow(['Belanja', 'Pengeluaran', uid]);
+      SH_CAT.appendRow(['Lainnya', 'Pengeluaran', uid]);
+      SH_CAT.appendRow(['Gaji', 'Pemasukan', uid]);
+    }
+
+    migrateLegacyData();
+  } finally {
+    APP_SETUP_RUNNING = false;
+  }
+}
+
+function ensureHeaders(sheet, headers) {
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(headers);
+    return;
+  }
+  const firstRow = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+  const hasHeaders = firstRow.every((value, index) => String(value || '').toLowerCase() === headers[index].toLowerCase());
+  if (!hasHeaders) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  }
+}
+
 function doGet() {
   return HtmlService.createTemplateFromFile('Index').evaluate()
     .setTitle('Money Tracker Pro')
@@ -19,330 +73,437 @@ function doGet() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-// [UTIL] Generate unique identifier UUID
-function generateId(){ return Utilities.getUuid(); }
+function generateId() { return Utilities.getUuid(); }
 
-// [VALIDATION] Validasi payload transaksi sebelum disimpan dengan enhanced checks
-function validateTransaksi(p){
-  // Check sheets exist
-  if (!SH_TRX || !SH_WAL) {
-    throw new Error("Sheet Transaksi atau Wallets tidak ditemukan. Periksa konfigurasi spreadsheet.");
-  }
-  
-  if(!p) throw new Error("Payload kosong");
-  if(!p.wallet) throw new Error("Wallet wajib dipilih");
-  
-  // Date validation
-  if(!p.tgl) throw new Error("Tanggal wajib diisi");
-  const tglDate = new Date(p.tgl);
-  if(isNaN(tglDate.getTime())) throw new Error("Format tanggal tidak valid");
-  
-  // Nominal validation
-  const nominal = Number(p.jumlah);
-  if(!nominal || nominal <= 0) throw new Error("Nominal harus lebih dari 0");
-  if(nominal > 999999999999) throw new Error("Nominal terlalu besar");
-  
-  // Transfer-specific validation
-  if(p.tipe==="Transfer"){
-    if(!p.walletTujuan) throw new Error("Wallet tujuan wajib dipilih untuk Transfer");
-    if(p.wallet===p.walletTujuan) throw new Error("Wallet sumber dan tujuan tidak boleh sama");
-  }
+function getDefaultUserId() {
+  ensureAppSetup();
+  const users = getUsers();
+  return users[0] ? users[0].id : generateId();
 }
 
-// [PERF] Hapus cache dashboard saat data berubah dengan pattern-based clearing
-function clearDashboardCache() {
-  CACHE.remove(WALLET_CACHE_KEY);
-  
-  // Clear all dashboard cache keys by pattern
-  // Note: Apps Script CacheService doesn't support pattern matching,
-  // so we use a version-based approach and store active keys
-  const oldVersion = CACHE.get("DASH_VER") || "0";
-  const newVersion = new Date().getTime().toString();
-  
-  // Store list of cache keys to clear (for future reference)
-  // In practice, old keys will expire after TTL (600s)
-  CACHE.put("DASH_VER", newVersion, 600);
-  
-  // Optional: Use PropertiesService for cross-user cache invalidation signal
-  try {
-    PropertiesService.getScriptProperties().setProperty("DASH_INVALIDATED_AT", newVersion);
-  } catch (e) {
-    // PropertiesService may not be available in all contexts
-    Logger.log("Could not set cache invalidation property: " + e.message);
+function getUserById(userId) {
+  ensureAppSetup();
+  const users = getUsers();
+  return users.find(u => u.id === userId) || users[0] || null;
+}
+
+function getUsers() {
+  ensureAppSetup();
+  const values = SH_USR.getRange(2, 1, Math.max(0, SH_USR.getLastRow() - 1), 5).getValues();
+  return values.filter(r => r[0]).map(r => ({
+    id: r[0],
+    name: String(r[1] || '').trim(),
+    pin: String(r[2] || '').trim(),
+    createdAt: r[3],
+    isAdmin: String(r[4] || '').toLowerCase() === 'true' || String(r[4] || '').toLowerCase() === '1' || (String(r[1] || '').trim() === DEFAULT_USER_NAME && String(r[2] || '').trim() === DEFAULT_USER_PIN)
+  }));
+}
+
+function verifyPin(pin) {
+  ensureAppSetup();
+  const normalized = String(pin || '').trim();
+  if (!normalized) throw new Error('PIN wajib diisi');
+  const users = getUsers();
+  Logger.log('Verifying PIN. Input: ' + normalized + ', Users count: ' + users.length);
+  const found = users.find(u => {
+    const userPin = String(u.pin || '').trim();
+    Logger.log('Comparing PIN: "' + normalized + '" === "' + userPin + '" ? ' + (normalized === userPin));
+    return userPin === normalized;
+  });
+  if (!found) throw new Error('PIN tidak cocok');
+  return { id: found.id, name: found.name, isAdmin: found.isAdmin };
+}
+
+function createUser(payload) {
+  ensureAppSetup();
+  const name = String(payload && payload.name ? payload.name : '').trim();
+  const pin = String(payload && payload.pin ? payload.pin : '').trim();
+  const requesterId = payload && (payload.userId || payload.adminUserId || payload.requesterId);
+  const requester = requesterId ? getUserById(requesterId) : null;
+  if (!name || !pin) throw new Error('Nama dan PIN wajib diisi');
+  if (!requester || !requester.isAdmin) throw new Error('Hanya akun admin yang bisa menambah akun');
+  if (getUsers().some(u => u.pin === pin)) throw new Error('PIN sudah dipakai');
+  const id = generateId();
+  SH_USR.appendRow([id, name, pin, new Date(), false]);
+  ensureUserSeedData(id);
+  clearDashboardCache();
+  return { id, name, pin, isAdmin: false };
+}
+
+function resolveUserId(userId) {
+  ensureAppSetup();
+  if (userId && typeof userId === 'object') {
+    userId = userId.userId || userId.id || null;
   }
+  return userId || getDefaultUserId();
 }
 
-// [DB] Ambil saldo tiap dompet dari sheet Wallets
-function getWalletBalances(){
-  const cached = CACHE.get(WALLET_CACHE_KEY);
-  if(cached) return JSON.parse(cached);
-  const lastRow = SH_WAL.getLastRow();
-  if(lastRow <= 1) return [];
-  const data = SH_WAL.getRange(2,1,lastRow-1,2).getValues();
-  const res = data.map(r => ({name:r[0], balance:Number(r[1])}));
-  CACHE.put(WALLET_CACHE_KEY, JSON.stringify(res), 600);
-  return res;
+function ensureUserSeedData(userId) {
+  ensureAppSetup();
+  const uid = resolveUserId(userId);
+  const walletRows = SH_WAL.getDataRange().getValues().slice(1);
+  const hasWalletForUser = walletRows.some(r => String(r[2] || '').trim() === uid && String(r[0] || '').trim());
+  if (!hasWalletForUser) {
+    SH_WAL.appendRow(['Kas', 0, uid]);
+  }
+
+  const categoryRows = SH_CAT.getDataRange().getValues().slice(1);
+  const hasCategoryForUser = categoryRows.some(r => String(r[2] || '').trim() === uid && String(r[0] || '').trim());
+  if (!hasCategoryForUser) {
+    SH_CAT.appendRow(['Makan & Minum', 'Pengeluaran', uid]);
+    SH_CAT.appendRow(['Transportasi', 'Pengeluaran', uid]);
+    SH_CAT.appendRow(['Belanja', 'Pengeluaran', uid]);
+    SH_CAT.appendRow(['Lainnya', 'Pengeluaran', uid]);
+    SH_CAT.appendRow(['Gaji', 'Pemasukan', uid]);
+  }
+
+  clearDashboardCache();
 }
 
-// [DB] Perbarui nilai saldo pada dompet spesifik dengan atomic locking
-function updateBalance(name, amt){
-  const lock = LockService.getScriptLock();
-  try {
-    // Wait up to 30 seconds for lock
-    lock.waitLock(30000);
-    
-    const lastRow = SH_WAL.getLastRow();
-    if(lastRow <= 1) {
-      lock.releaseLock();
-      return;
-    }
-    
-    const range = SH_WAL.getRange(2,1,lastRow-1,2);
-    const data = range.getValues();
-    
-    for(let i=0;i<data.length;i++){
-      if(data[i][0]===name){
-        const newBalance = Number(data[i][1]) + amt;
-        range.getCell(i+1,2).setValue(newBalance);
-        
-        // Log for debugging race conditions
-        Logger.log(`Balance updated: ${name}, amount: ${amt}, new balance: ${newBalance}`);
-        
-        clearDashboardCache();
-        lock.releaseLock();
-        return;
+function migrateLegacyData() {
+  const targetUserId = getDefaultUserId();
+  let needsUpdate = false;
+
+  const walletValues = SH_WAL.getDataRange().getValues();
+  for (let i = 1; i < walletValues.length; i++) {
+    if (walletValues[i] && walletValues[i][0]) {
+      const rowUser = String(walletValues[i][2] || '').trim();
+      if (!rowUser) {
+        SH_WAL.getRange(i + 1, 3).setValue(targetUserId);
+        needsUpdate = true;
       }
     }
-    
-    lock.releaseLock();
-    throw new Error("Wallet not found: " + name);
-    
-  } catch (e) {
-    // Ensure lock is always released
-    try {
-      lock.releaseLock();
-    } catch (releaseError) {
-      // Lock may already be released
+  }
+
+  const categoryValues = SH_CAT.getDataRange().getValues();
+  for (let i = 1; i < categoryValues.length; i++) {
+    if (categoryValues[i] && categoryValues[i][0]) {
+      const rowUser = String(categoryValues[i][2] || '').trim();
+      if (!rowUser) {
+        SH_CAT.getRange(i + 1, 3).setValue(targetUserId);
+        needsUpdate = true;
+      }
     }
-    throw e;
+  }
+
+  const transactionValues = SH_TRX.getDataRange().getValues();
+  for (let i = 1; i < transactionValues.length; i++) {
+    if (transactionValues[i] && transactionValues[i][0]) {
+      const rowUser = String(transactionValues[i][7] || '').trim();
+      if (!rowUser) {
+        SH_TRX.getRange(i + 1, 8).setValue(targetUserId);
+        needsUpdate = true;
+      }
+    }
+  }
+
+  if (needsUpdate) {
+    clearDashboardCache();
   }
 }
 
-// [DB] Simpan data transaksi baru atau delegasi ke update
-function simpanTransaksi(p){
+function clearDashboardCache() {
+  CACHE.remove(WALLET_CACHE_KEY);
+  const newVersion = new Date().getTime().toString();
+  CACHE.put('DASH_VER', newVersion, 600);
+}
+
+function validateTransaksi(p) {
+  ensureAppSetup();
+  if (!p) throw new Error('Payload kosong');
+  if (!p.wallet) throw new Error('Wallet wajib dipilih');
+  if (!p.tgl) throw new Error('Tanggal wajib diisi');
+  const tglDate = new Date(p.tgl);
+  if (isNaN(tglDate.getTime())) throw new Error('Format tanggal tidak valid');
+  const nominal = Number(p.jumlah);
+  if (!nominal || nominal <= 0) throw new Error('Nominal harus lebih dari 0');
+  if (nominal > 999999999999) throw new Error('Nominal terlalu besar');
+  if (p.tipe === 'Transfer') {
+    if (!p.walletTujuan) throw new Error('Wallet tujuan wajib dipilih untuk Transfer');
+    if (p.wallet === p.walletTujuan) throw new Error('Wallet sumber dan tujuan tidak boleh sama');
+  }
+}
+
+function getWalletBalances(userId) {
+  ensureAppSetup();
+  const uid = resolveUserId(userId);
+  ensureUserSeedData(uid);
+  const values = SH_WAL.getDataRange().getValues().slice(1);
+  const res = values
+    .filter(r => r[0] && String(r[2] || '').trim() === uid)
+    .map(r => ({ name: r[0], balance: Number(r[1] || 0), userId: r[2] || uid }));
+  return res.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function saveWallet(payload) {
+  ensureAppSetup();
+  const uid = resolveUserId(payload && payload.userId ? payload.userId : null);
+  const name = String(payload && payload.name ? payload.name : '').trim();
+  if (!name) throw new Error('Nama sumber dana wajib diisi');
+  const existing = getWalletBalances(uid).find(w => w.name.toLowerCase() === name.toLowerCase());
+  if (existing) {
+    return getWalletBalances(uid);
+  }
+  SH_WAL.appendRow([name, Number(payload && payload.initialBalance ? payload.initialBalance : 0), uid]);
+  clearDashboardCache();
+  return getWalletBalances(uid);
+}
+
+function updateBalance(name, amt, userId) {
+  ensureAppSetup();
+  const uid = resolveUserId(userId);
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    const values = SH_WAL.getDataRange().getValues();
+    let found = false;
+    for (let i = 1; i < values.length; i++) {
+      const rowUser = values[i][2] || uid;
+      if (values[i][0] === name && String(rowUser) === uid) {
+        const newBalance = Number(values[i][1] || 0) + amt;
+        SH_WAL.getRange(i + 1, 2).setValue(newBalance);
+        found = true;
+        break;
+      }
+    }
+    if (!found) throw new Error('Wallet not found: ' + name);
+    clearDashboardCache();
+    return true;
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+function getCategories(userId) {
+  ensureAppSetup();
+  const uid = resolveUserId(userId);
+  ensureUserSeedData(uid);
+  const values = SH_CAT.getDataRange().getValues().slice(1);
+  return values
+    .filter(r => r[0] && String(r[2] || '').trim() === uid)
+    .map(r => ({ name: r[0], type: r[1] || 'Pengeluaran' }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function saveCategory(payload) {
+  ensureAppSetup();
+  const uid = resolveUserId(payload && payload.userId ? payload.userId : null);
+  const name = String(payload && payload.name ? payload.name : '').trim();
+  const type = String(payload && payload.type ? payload.type : 'Pengeluaran').trim();
+  if (!name) throw new Error('Nama kategori wajib diisi');
+  const existing = getCategories(uid).find(c => c.name.toLowerCase() === name.toLowerCase() && c.type === type);
+  if (existing) {
+    return getCategories(uid);
+  }
+  SH_CAT.appendRow([name, type, uid]);
+  clearDashboardCache();
+  return getCategories(uid);
+}
+
+function getMasterData(userId) {
+  ensureAppSetup();
+  const uid = resolveUserId(userId);
+  ensureUserSeedData(uid);
+  return {
+    user: getUserById(uid),
+    users: getUsers(),
+    categories: getCategories(uid),
+    wallets: getWalletBalances(uid)
+  };
+}
+
+function simpanTransaksi(p) {
   validateTransaksi(p);
+  const uid = resolveUserId(p && p.userId ? p.userId : null);
   const tgl = new Date(p.tgl);
   const nominal = Number(p.jumlah);
   const kategoriFinal = (p.kategori === 'Lainnya' && p.kategoriKustom) ? p.kategoriKustom : p.kategori;
   const trxId = p.trxId || generateId();
-  if(p.rowId){
-    updateExistingTransaction(p);
+  if (p.rowId) {
+    updateExistingTransaction(p, uid);
     return true;
   }
-  if(p.tipe==="Transfer"){
-    // Atomic Transfer: wrap in try-catch with rollback
+  if (p.tipe === 'Transfer') {
     try {
-      SH_TRX.appendRow([tgl,'Transfer Out','Sistem',p.wallet,nominal,`Ke: ${p.walletTujuan} | ${p.catatan}`,trxId]);
-      SH_TRX.appendRow([tgl,'Transfer In','Sistem',p.walletTujuan,nominal,`Dari: ${p.wallet} | ${p.catatan}`,trxId]);
-      
-      // Update both balances atomically
-      updateBalance(p.wallet,-nominal);
-      updateBalance(p.walletTujuan,nominal);
-      
-      Logger.log(`Transfer completed: ${trxId}, from ${p.wallet} to ${p.walletTujuan}, amount: ${nominal}`);
+      SH_TRX.appendRow([tgl, 'Transfer Out', 'Sistem', p.wallet, nominal, `Ke: ${p.walletTujuan} | ${p.catatan}`, trxId, uid]);
+      SH_TRX.appendRow([tgl, 'Transfer In', 'Sistem', p.walletTujuan, nominal, `Dari: ${p.wallet} | ${p.catatan}`, trxId, uid]);
+      updateBalance(p.wallet, -nominal, uid);
+      updateBalance(p.walletTujuan, nominal, uid);
     } catch (e) {
-      // Rollback: delete transaction rows if balance update fails
-      Logger.log(`Transfer failed, rolling back: ${trxId}, error: ${e.message}`);
-      deleteByTransactionId(trxId);
-      throw new Error("Transfer gagal: " + e.message);
+      deleteByTransactionId(trxId, uid);
+      throw new Error('Transfer gagal: ' + e.message);
     }
-  }else{
-    SH_TRX.appendRow([tgl,p.tipe,kategoriFinal,p.wallet,nominal,p.catatan,trxId]);
-    updateBalance(p.wallet,p.tipe==='Pemasukan'?nominal:-nominal);
+  } else {
+    SH_TRX.appendRow([tgl, p.tipe, kategoriFinal, p.wallet, nominal, p.catatan, trxId, uid]);
+    updateBalance(p.wallet, p.tipe === 'Pemasukan' ? nominal : -nominal, uid);
   }
+  clearDashboardCache();
   return true;
 }
 
-// [DB] Update data transaksi lama dengan menghapus dan menulis ulang
-function updateExistingTransaction(p){
+function updateExistingTransaction(p, userId) {
+  ensureAppSetup();
   const row = Number(p.rowId);
-  if(row<=1) throw new Error("Row invalid");
-  const old = SH_TRX.getRange(row,1,1,7).getValues()[0];
+  if (row <= 1) throw new Error('Row invalid');
+  const old = SH_TRX.getRange(row, 1, 1, 8).getValues()[0];
   const trxId = old[6];
-  if(trxId) deleteByTransactionId(trxId);
-  else { revertBalance(old); SH_TRX.deleteRow(row); }
-  simpanTransaksi({...p, kategori: p.kategori || old[2], trxId: p.trxId || old[6], rowId:null});
+  if (trxId) deleteByTransactionId(trxId, userId || old[7]);
+  else { revertBalance(old, userId || old[7]); SH_TRX.deleteRow(row); }
+  simpanTransaksi({ ...p, kategori: p.kategori || old[2], trxId: p.trxId || old[6], rowId: null, userId: userId || old[7] });
 }
 
-// [CALC] Kembalikan saldo sebelum transaksi dihapus/diubah
-function revertBalance(row){
-  const tipe=row[1], wallet=row[3], nominal=Number(row[4]);
-  if(tipe==='Pemasukan'||tipe==='Transfer In') updateBalance(wallet,-nominal);
-  else if(tipe==='Pengeluaran'||tipe==='Transfer Out') updateBalance(wallet,nominal);
+function revertBalance(row, userId) {
+  const tipe = row[1];
+  const wallet = row[3];
+  const nominal = Number(row[4]);
+  if (tipe === 'Pemasukan' || tipe === 'Transfer In') updateBalance(wallet, -nominal, userId);
+  else if (tipe === 'Pengeluaran' || tipe === 'Transfer Out') updateBalance(wallet, nominal, userId);
 }
 
-// [DB] Hapus transaksi tunggal berdasarkan nomor baris
-function hapusTransaksi(rowId){
+function hapusTransaksi(rowId, userId) {
+  ensureAppSetup();
   const row = Number(rowId);
-  if(row<=1) return false;
-  const data = SH_TRX.getRange(row,1,1,7).getValues()[0];
+  if (row <= 1) return false;
+  const data = SH_TRX.getRange(row, 1, 1, 8).getValues()[0];
   const trxId = data[6];
-  if(trxId) deleteByTransactionId(trxId);
-  else { revertBalance(data); SH_TRX.deleteRow(row); }
+  if (trxId) deleteByTransactionId(trxId, userId || data[7]);
+  else { revertBalance(data, userId || data[7]); SH_TRX.deleteRow(row); }
+  clearDashboardCache();
   return true;
 }
 
-// [DB] Hapus transaksi berdasarkan ID unik (untuk sepasang transfer) dengan error handling per-row
-function deleteByTransactionId(trxId){
+function deleteByTransactionId(trxId, userId) {
+  ensureAppSetup();
   const values = SH_TRX.getDataRange().getValues();
-  let deletedCount = 0;
-  let errors = [];
-  
-  for(let i=values.length-1;i>=1;i--){
-    if(values[i][6]===trxId){
-      try {
-        revertBalance(values[i]);
-        SH_TRX.deleteRow(i+1);
-        deletedCount++;
-      } catch (e) {
-        // Log error but continue with other rows
-        errors.push(`Row ${i+1}: ${e.message}`);
-        Logger.log(`Error deleting row ${i+1} for transaction ${trxId}: ${e.message}`);
-      }
+  const uid = resolveUserId(userId);
+  for (let i = values.length - 1; i >= 1; i--) {
+    if (values[i][6] === trxId && String(values[i][7] || uid) === uid) {
+      revertBalance(values[i], uid);
+      SH_TRX.deleteRow(i + 1);
     }
   }
-  
-  if (errors.length > 0) {
-    Logger.log(`Deleted ${deletedCount} rows for transaction ${trxId}, with ${errors.length} errors`);
-  }
+  clearDashboardCache();
 }
 
-// [DB] Ambil riwayat transaksi dengan filter tipe dan tanggal
-function getTransactions(f){
-  const lastRow=SH_TRX.getLastRow();
-  if(lastRow<=1) return [];
-  const values=SH_TRX.getRange(2,1,lastRow-1,7).getValues();
-  const start=new Date(f.start);
-  const end=new Date(f.end);
-  end.setHours(23,59,59);
-  const result=[];
-  for(let i=0;i<values.length;i++){
-    const r=values[i];
-    if(!r[0]) continue;
-    const d=new Date(r[0]);
-    const matchTipe= f.tipe==='Semua'|| r[1]===f.tipe|| (f.tipe==='Pemasukan'&&r[1]==='Transfer In')|| (f.tipe==='Pengeluaran'&&r[1]==='Transfer Out');
-    if(d>=start&&d<=end&&matchTipe){
+function getTransactions(f) {
+  ensureAppSetup();
+  const uid = resolveUserId(f && f.userId ? f.userId : null);
+  const values = SH_TRX.getDataRange().getValues().slice(1);
+  const start = new Date(f && f.start ? f.start : new Date());
+  const end = new Date(f && f.end ? f.end : new Date());
+  end.setHours(23, 59, 59);
+  const result = [];
+  values.forEach((r, index) => {
+    const rowUser = String(r[7] || '').trim();
+    if (!rowUser || rowUser !== uid || !r[0]) return;
+    const d = new Date(r[0]);
+    const matchTipe = f && f.tipe === 'Semua' ? true : r[1] === f.tipe || (f.tipe === 'Pemasukan' && r[1] === 'Transfer In') || (f.tipe === 'Pengeluaran' && r[1] === 'Transfer Out');
+    if (d >= start && d <= end && matchTipe) {
       result.push({
-        tgl:Utilities.formatDate(r[0],TZ,"dd/MM"),
-        tglRaw:Utilities.formatDate(r[0],TZ,"yyyy-MM-dd'T'HH:mm"),
-        tipe:r[1], kat:r[2], wallet:r[3], nominal:r[4], note:r[5], row:i+2, trxId:r[6]
+        tgl: Utilities.formatDate(r[0], TZ, 'dd/MM'),
+        tglRaw: Utilities.formatDate(r[0], TZ, 'yyyy-MM-dd\'T\'HH:mm'),
+        tipe: r[1],
+        kat: r[2],
+        wallet: r[3],
+        nominal: Number(r[4] || 0),
+        note: r[5],
+        row: index + 2,
+        trxId: r[6]
       });
     }
-  }
-  return result.sort((a,b)=>new Date(b.tglRaw)-new Date(a.tglRaw));
+  });
+  return result.sort((a, b) => new Date(b.tglRaw) - new Date(a.tglRaw));
 }
 
-// [PERF] Agregasi data dashboard menggunakan mekanisme caching
-function getDashboardData(f){
-  const ver = CACHE.get("DASH_VER") || "0";
-  const cacheKey = DASH_CACHE_PREFIX + ver + "_" + Utilities.base64Encode(JSON.stringify(f));
+function getDashboardData(f) {
+  ensureAppSetup();
+  const uid = resolveUserId(f && f.userId ? f.userId : null);
+  const ver = CACHE.get('DASH_VER') || '0';
+  const cacheKey = DASH_CACHE_PREFIX + ver + '_' + Utilities.base64Encode(JSON.stringify({ ...f, userId: uid }));
   const cached = CACHE.get(cacheKey);
-  if(cached) return JSON.parse(cached);
-  const trx=SH_TRX.getDataRange().getValues().slice(1);
-  const wal=SH_WAL.getDataRange().getValues().slice(1);
-  const start=new Date(f.start);
-  const end=new Date(f.end);
-  end.setHours(23,59,59);
-  let totalSemua=0;
-  const walletDetails=wal.map(r=>{
-    totalSemua+=Number(r[1]);
-    return {name:r[0],balance:Number(r[1])};
-  });
-  let catStats={},totalFiltered=0;
-  trx.forEach(r=>{
-    const d=new Date(r[0]);
-    if(d>=start&&d<=end&&r[1]===f.tipe){
-      const nom=Number(r[4]);
-      catStats[r[2]]=(catStats[r[2]]||0)+nom;
-      totalFiltered+=nom;
+  if (cached) return JSON.parse(cached);
+
+  const trx = SH_TRX.getDataRange().getValues().slice(1);
+  const wal = SH_WAL.getDataRange().getValues().slice(1);
+  const start = new Date(f && f.start ? f.start : new Date());
+  const end = new Date(f && f.end ? f.end : new Date());
+  end.setHours(23, 59, 59);
+
+  let totalSemua = 0;
+  const walletDetails = wal
+    .filter(r => r[0] && String(r[2] || '').trim() === uid)
+    .map(r => {
+      totalSemua += Number(r[1] || 0);
+      return { name: r[0], balance: Number(r[1] || 0) };
+    });
+
+  const catStats = {};
+  let totalFiltered = 0;
+  trx.forEach(r => {
+    const rowUser = String(r[7] || '').trim();
+    if (!rowUser || rowUser !== uid) return;
+    const d = new Date(r[0]);
+    const selectedType = (f && f.tipe) || 'Pengeluaran';
+    const matchType = selectedType === 'Semua'
+      ? true
+      : r[1] === selectedType || (selectedType === 'Pemasukan' && r[1] === 'Transfer In') || (selectedType === 'Pengeluaran' && r[1] === 'Transfer Out');
+    if (d >= start && d <= end && matchType) {
+      const nom = Number(r[4] || 0);
+      catStats[r[2]] = (catStats[r[2]] || 0) + nom;
+      totalFiltered += nom;
     }
   });
-  const finalResult = {totalSemua,walletDetails,catStats,totalFiltered};
+
+  const finalResult = { totalSemua, walletDetails, catStats, totalFiltered };
   CACHE.put(cacheKey, JSON.stringify(finalResult), 600);
   return finalResult;
 }
 
-// [DB] Ambil data detail untuk kebutuhan laporan CSV dengan enhanced error handling
-function getExportData(params){
-  const startStr = Array.isArray(params) ? params[0] : params.start;
-  const endStr = Array.isArray(params) ? params[1] : params.end;
-  if(!startStr || !endStr) throw new Error("Invalid export date range");
-  
-  let start, end;
-  try {
-    start = new Date(startStr);
-    end = new Date(endStr);
-    end.setHours(23,59,59);
-  } catch (e) {
-    throw new Error("Invalid date format");
-  }
-  
-  if(isNaN(start) || isNaN(end)) throw new Error("Invalid date format");
-  
-  const data = SH_TRX.getDataRange().getValues();
-  data.shift();
-  data.sort((a,b)=>new Date(a[0]) - new Date(b[0]));
-  
+function getExportData(params) {
+  ensureAppSetup();
+  const uid = resolveUserId(Array.isArray(params) ? null : params && params.userId ? params.userId : null);
+  const startStr = Array.isArray(params) ? params[0] : params && params.start;
+  const endStr = Array.isArray(params) ? params[1] : params && params.end;
+  if (!startStr || !endStr) throw new Error('Invalid export date range');
+
+  const start = new Date(startStr);
+  const end = new Date(endStr);
+  end.setHours(23, 59, 59);
+
+  const data = SH_TRX.getDataRange().getValues().slice(1).filter(r => String(r[7] || '').trim() === uid);
+  data.sort((a, b) => new Date(a[0]) - new Date(b[0]));
+
   let runningTotal = 0;
   const exportData = [];
   const yearSuffix = new Date().getFullYear();
-  
-  for(let i=0;i<data.length;i++){
-    const r = data[i];
-    if(!r[0]) continue;
-    
-    let tglTrx;
-    try {
-      tglTrx = new Date(r[0]);
-      if(isNaN(tglTrx)) {
-        Logger.log(`Skipping row ${i+2}: invalid date`);
-        continue;
-      }
-    } catch (e) {
-      Logger.log(`Skipping row ${i+2}: date parse error - ${e.message}`);
-      continue;
-    }
-    
+  data.forEach((r, i) => {
+    if (!r[0]) return;
+    const tglTrx = new Date(r[0]);
+    if (isNaN(tglTrx)) return;
     const nominal = Number(r[4]) || 0;
-    const isDebit = (r[1]==='Pemasukan' || r[1]==='Transfer In');
+    const isDebit = r[1] === 'Pemasukan' || r[1] === 'Transfer In';
     runningTotal += isDebit ? nominal : -nominal;
-    
-    if(tglTrx >= start && tglTrx <= end){
+    if (tglTrx >= start && tglTrx <= end) {
       exportData.push({
-        kode: `PP${yearSuffix}-${String(i+1).padStart(3,'0')}`,
-        tgl: Utilities.formatDate(tglTrx,TZ,"dd/MM/yyyy"),
-        wallet: r[3] || "-",
-        keterangan: r[2] || "-",
-        catatan: r[5] || "-",
+        kode: `PP${yearSuffix}-${String(i + 1).padStart(3, '0')}`,
+        tgl: Utilities.formatDate(tglTrx, TZ, 'dd/MM/yyyy'),
+        wallet: r[3] || '-',
+        keterangan: r[2] || '-',
+        catatan: r[5] || '-',
         debit: isDebit ? nominal : 0,
         kredit: !isDebit ? nominal : 0,
-        total: Number(runningTotal.toFixed(2)) // Use toFixed for precision
+        total: Number(runningTotal.toFixed(2))
       });
     }
-  }
-  
+  });
   return exportData;
 }
 
-// [UTIL] Helper function to escape CSV fields per RFC 4180
-function escapeCsvField(str){
-  if(!str) return "";
+function escapeCsvField(str) {
+  if (!str) return '';
   str = String(str);
-  
-  // If field contains comma, quote, or newline, wrap in quotes and escape internal quotes
-  if(str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')){
+  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
     return '"' + str.replace(/"/g, '""') + '"';
   }
-  
   return str;
 }
