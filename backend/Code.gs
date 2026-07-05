@@ -37,7 +37,7 @@ function ensureAppSetup() {
     }
     if (SH_WAL.getLastRow() <= 1) {
       const uid = getDefaultUserId();
-      SH_WAL.appendRow(['Kas', 0, uid]);
+      SH_WAL.appendRow(['Cash', 0, uid]);
     }
     if (SH_CAT.getLastRow() <= 1) {
       const uid = getDefaultUserId();
@@ -144,7 +144,7 @@ function ensureUserSeedData(userId) {
   const walletRows = SH_WAL.getDataRange().getValues().slice(1);
   const hasWalletForUser = walletRows.some(r => String(r[2] || '').trim() === uid && String(r[0] || '').trim());
   if (!hasWalletForUser) {
-    SH_WAL.appendRow(['Kas', 0, uid]);
+    SH_WAL.appendRow(['Cash', 0, uid]);
   }
 
   const categoryRows = SH_CAT.getDataRange().getValues().slice(1);
