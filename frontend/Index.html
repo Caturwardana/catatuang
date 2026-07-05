@@ -152,7 +152,7 @@
           <div class="mb-3"><label class="form-label-custom">Tanggal & Waktu</label><input type="datetime-local" class="form-control" id="tglInput" required></div>
           <div class="mb-3">
             <div class="wallet-wrapper">
-                <label class="form-label-custom">Sumber Dana</label>
+                <label class="form-label-custom" id="walletLabel">Sumber Dana</label>
                 <span id="display-saldo" class="balance-info">Saldo - Rp 0</span>
             </div>
             <select class="form-select" id="wallet" onchange="updateSaldoDisplay()"></select>
@@ -646,6 +646,10 @@
   // [UI] Sesuaikan input kategori berdasarkan tipe transaksi
   function toggleUI() {
     const t = document.getElementById('tipe').value;
+    const walletLabel = document.getElementById('walletLabel');
+    if (walletLabel) {
+      walletLabel.innerText = t === 'Pemasukan' ? 'Wallet Tujuan' : 'Sumber Dana';
+    }
     document.getElementById('kat-area').style.display = t === 'Transfer' ? 'none' : 'block';
     document.getElementById('tujuan-area').style.display = t === 'Transfer' ? 'block' : 'none';
     const select = document.getElementById('kategori');
@@ -683,10 +687,18 @@
   function applyCustomDate(type) { const s = document.getElementById(`${type.toLowerCase()}-start`).value, e = document.getElementById(`${type.toLowerCase()}-end`).value; if(!s || !e) return; if(type === 'H') { hF.start = s; hF.end = e; fetchTransactions(); } else { sF.start = s; sF.end = e; fetchDashboard(); } }
   
   // [EVENT] Update filter riwayat berdasarkan preset hari
-  function updateHDate(d) { document.getElementById('custom-date-H').style.setProperty('display', 'none', 'important'); const t = new Date(), p = new Date(t.getTime() - ((d - 1) * 24 * 60 * 60 * 1000)); hF.start = p.toISOString().split('T')[0]; hF.end = t.toISOString().split('T')[0]; [7, 30, 365].forEach(v => { const el = document.getElementById('h-d-' + v); if(el) el.classList.toggle('active', d === v); }); document.getElementById('h-d-custom').classList.remove('active'); fetchTransactions(); }
+  function formatDateLocal(date) {
+    const d = new Date(date);
+    const yyyy = d.getFullYear();
+    const mm = ('0' + (d.getMonth() + 1)).slice(-2);
+    const dd = ('0' + d.getDate()).slice(-2);
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  function updateHDate(d) { document.getElementById('custom-date-H').style.setProperty('display', 'none', 'important'); const t = new Date(), p = new Date(t.getTime() - ((d - 1) * 24 * 60 * 60 * 1000)); hF.start = formatDateLocal(p); hF.end = formatDateLocal(t); [7, 30, 365].forEach(v => { const el = document.getElementById('h-d-' + v); if(el) el.classList.toggle('active', d === v); }); document.getElementById('h-d-custom').classList.remove('active'); fetchTransactions(); }
   
   // [EVENT] Update filter statistik berdasarkan preset hari
-  function updateSDate(d) { document.getElementById('custom-date-S').style.setProperty('display', 'none', 'important'); const t = new Date(), p = new Date(t.getTime() - ((d - 1) * 24 * 60 * 60 * 1000)); sF.start = p.toISOString().split('T')[0]; sF.end = t.toISOString().split('T')[0]; [7, 30, 365].forEach(v => { const el = document.getElementById('s-d-' + v); if(el) el.classList.toggle('active', d === v); }); document.getElementById('s-d-custom').classList.remove('active'); fetchDashboard(); }
+  function updateSDate(d) { document.getElementById('custom-date-S').style.setProperty('display', 'none', 'important'); const t = new Date(), p = new Date(t.getTime() - ((d - 1) * 24 * 60 * 60 * 1000)); sF.start = formatDateLocal(p); sF.end = formatDateLocal(t); [7, 30, 365].forEach(v => { const el = document.getElementById('s-d-' + v); if(el) el.classList.toggle('active', d === v); }); document.getElementById('s-d-custom').classList.remove('active'); fetchDashboard(); }
   
   // [EVENT] Filter statistik berdasarkan tipe transaksi
   function updateSFilter(k, v) { sF[k] = v; ['Pemasukan', 'Pengeluaran'].forEach(t => { const btn = document.getElementById('s-t-' + t); if(btn) btn.classList.toggle('active', sF.tipe === t); }); fetchDashboard(); }
