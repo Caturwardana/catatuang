@@ -35,6 +35,7 @@
         <div class="modal-body text-center p-4">
           <div class="mb-3" style="font-size: 2.5rem;">🗑️</div>
           <h6 class="fw-800 mb-2">Hapus Transaksi?</h6>
+          <div id="confirmDeleteTrxDetail" class="small mb-3" style="text-align:left;background:var(--input-bg);border-radius:12px;padding:10px;"></div>
           <p class="text-muted small mb-4">Tindakan ini tidak dapat dibatalkan dan saldo akan disesuaikan kembali.</p>
           <div class="d-flex gap-2">
             <button type="button" class="btn btn-light w-100 fw-bold py-2" style="border-radius: 12px;"
@@ -59,6 +60,39 @@
               data-bs-dismiss="modal">Batal</button>
             <button type="button" class="btn btn-dark w-100 fw-bold py-2" style="border-radius: 12px;"
               id="confirmSaveBtn" onclick="executeSave()">Simpan</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="modal fade" id="modalEditMaster" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered mx-auto" style="max-width: 350px;">
+      <div class="modal-content" style="border-radius: 24px; border: none; box-shadow: 0 20px 40px rgba(0,0,0,0.2);">
+        <div class="modal-body text-center p-4">
+          <div class="mb-3" style="font-size: 2.5rem;">✏️</div>
+          <h6 class="fw-800 mb-2" id="editMasterTitle">Edit</h6>
+          <div class="mb-3" style="text-align:left;">
+            <label id="editMasterLabel" class="small text-muted mb-1" style="display:block;"></label>
+            <input type="text" class="form-control" id="editMasterInput">
+          </div>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-light w-100 fw-bold py-2" style="border-radius: 12px;" data-bs-dismiss="modal">Batal</button>
+            <button type="button" class="btn btn-dark w-100 fw-bold py-2" style="border-radius: 12px;" onclick="executeEditMaster()">Simpan</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="modal fade" id="modalConfirmMasterDelete" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered mx-auto" style="max-width: 350px;">
+      <div class="modal-content" style="border-radius: 24px; border: none; box-shadow: 0 20px 40px rgba(0,0,0,0.2);">
+        <div class="modal-body text-center p-4">
+          <div class="mb-3" style="font-size: 2.5rem;">🗑️</div>
+          <h6 class="fw-800 mb-2" id="confirmDeleteMasterTitle">Hapus?</h6>
+          <p class="text-muted small mb-4" id="confirmDeleteMasterDetail"></p>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-light w-100 fw-bold py-2" style="border-radius: 12px;" data-bs-dismiss="modal">Batal</button>
+            <button type="button" class="btn btn-danger w-100 fw-bold py-2" style="border-radius: 12px; background: #ef4444;" onclick="executeDeleteMaster()">Hapus</button>
           </div>
         </div>
       </div>
@@ -271,10 +305,14 @@
           <div class="glass-card">
             <label class="form-label-custom">Periode Transaksi</label>
             <div class="d-flex gap-2 mb-3">
-              <div class="date-input-container"><input type="date" class="form-control" id="ex-start"
-                  placeholder="Tanggal Mulai" required></div>
-              <div class="date-input-container"><input type="date" class="form-control" id="ex-end"
-                  placeholder="Tanggal Akhir" required></div>
+              <div class="date-input-container">
+                <label style="font-size:0.7rem;color:var(--text-muted);display:block;margin-bottom:2px;">Tanggal Mulai</label>
+                <input type="date" class="form-control" id="ex-start" required>
+              </div>
+              <div class="date-input-container">
+                <label style="font-size:0.7rem;color:var(--text-muted);display:block;margin-bottom:2px;">Tanggal Akhir</label>
+                <input type="date" class="form-control" id="ex-end" required>
+              </div>
             </div>
             <button class="btn-main mb-3" onclick="processExport()">GENERATE PREVIEW</button>
             <div id="export-preview-area" style="display:none;">
@@ -567,44 +605,79 @@
       list.innerHTML = `<div class="mb-3"><div class="small fw-800 text-muted mb-2">Sumber Dana</div>${wallets || '<div class="small text-muted">Belum ada sumber dana</div>'}</div><div><div class="small fw-800 text-muted mb-2">Kategori</div>${cats || '<div class="small text-muted">Belum ada kategori</div>'}</div>`;
     }
 
+    let editMasterPending = null;
+    let deleteMasterPending = null;
+
     function editWalletUI(name) {
-      const newName = prompt('Edit nama sumber dana:', name);
-      if (newName && newName.trim() && newName.trim() !== name) {
-        runServer('editWallet', { oldName: name, newName: newName.trim(), userId: currentUser.id }, () => {
-          invalidateFrontendCache();
-          loadMasterData(() => { renderMasterData(); toggleUI(); });
-          showToast();
-        });
-      }
+      editMasterPending = { type: 'wallet', oldName: name };
+      document.getElementById('editMasterTitle').textContent = 'Edit Sumber Dana';
+      document.getElementById('editMasterLabel').textContent = 'Nama baru:';
+      document.getElementById('editMasterInput').value = name;
+      showModal('modalEditMaster');
     }
 
     function deleteWalletUI(name) {
-      if (!confirm(`Hapus sumber dana "${name}"?`)) return;
-      runServer('deleteWallet', { name, userId: currentUser.id }, () => {
-        invalidateFrontendCache();
-        loadMasterData(() => { renderMasterData(); toggleUI(); });
-        showToast();
-      });
+      deleteMasterPending = { type: 'wallet', name };
+      document.getElementById('confirmDeleteMasterTitle').textContent = 'Hapus Sumber Dana?';
+      document.getElementById('confirmDeleteMasterDetail').textContent = `Yakin ingin menghapus sumber dana "${name}"? Semua transaksi terkait akan diperbarui.`;
+      showModal('modalConfirmMasterDelete');
     }
 
     function editCategoryUI(name, type) {
-      const newName = prompt('Edit nama kategori:', name);
-      if (newName && newName.trim() && newName.trim() !== name) {
-        runServer('editCategory', { oldName: name, newName: newName.trim(), type, userId: currentUser.id }, () => {
+      editMasterPending = { type: 'kategori', oldName: name, catType: type };
+      document.getElementById('editMasterTitle').textContent = 'Edit Kategori';
+      document.getElementById('editMasterLabel').textContent = 'Nama baru:';
+      document.getElementById('editMasterInput').value = name;
+      showModal('modalEditMaster');
+    }
+
+    function deleteCategoryUI(name, type) {
+      deleteMasterPending = { type: 'kategori', name, catType: type };
+      document.getElementById('confirmDeleteMasterTitle').textContent = 'Hapus Kategori?';
+      document.getElementById('confirmDeleteMasterDetail').textContent = `Yakin ingin menghapus kategori "${name}" (${type})? Semua transaksi terkait akan diperbarui.`;
+      showModal('modalConfirmMasterDelete');
+    }
+
+    function executeEditMaster() {
+      const p = editMasterPending;
+      if (!p) return;
+      const newName = document.getElementById('editMasterInput').value.trim();
+      if (!newName || newName === p.oldName) { hideModal('modalEditMaster'); editMasterPending = null; return; }
+      if (p.type === 'wallet') {
+        runServer('editWallet', { oldName: p.oldName, newName, userId: currentUser.id }, () => {
+          invalidateFrontendCache();
+          loadMasterData(() => { renderMasterData(); toggleUI(); });
+          showToast();
+        });
+      } else {
+        runServer('editCategory', { oldName: p.oldName, newName, type: p.catType, userId: currentUser.id }, () => {
           invalidateFrontendCache();
           loadMasterData(() => { renderMasterData(); toggleUI(); });
           showToast();
         });
       }
+      hideModal('modalEditMaster');
+      editMasterPending = null;
     }
 
-    function deleteCategoryUI(name, type) {
-      if (!confirm(`Hapus kategori "${name}"?`)) return;
-      runServer('deleteCategory', { name, userId: currentUser.id }, () => {
-        invalidateFrontendCache();
-        loadMasterData(() => { renderMasterData(); toggleUI(); });
-        showToast();
-      });
+    function executeDeleteMaster() {
+      const p = deleteMasterPending;
+      if (!p) return;
+      if (p.type === 'wallet') {
+        runServer('deleteWallet', { name: p.name, userId: currentUser.id }, () => {
+          invalidateFrontendCache();
+          loadMasterData(() => { renderMasterData(); toggleUI(); });
+          showToast();
+        });
+      } else {
+        runServer('deleteCategory', { name: p.name, userId: currentUser.id }, () => {
+          invalidateFrontendCache();
+          loadMasterData(() => { renderMasterData(); toggleUI(); });
+          showToast();
+        });
+      }
+      hideModal('modalConfirmMasterDelete');
+      deleteMasterPending = null;
     }
 
     function refreshInputData() {
@@ -712,14 +785,15 @@
       document.getElementById('recapYear').textContent = reqYear;
       document.getElementById('recap-loader').style.display = 'block';
       runServer('getMonthlyRecap', { year: reqYear, userId: currentUser.id }, (data) => {
-        if (recapYear !== reqYear) return; // stale response from year navigation
+        if (recapYear !== reqYear) { document.getElementById('recap-loader').style.display = 'none'; return; }
         recapData = data;
         document.getElementById('recap-loader').style.display = 'none';
         try { renderRecap(); } catch (e) { console.error(e); }
-      }, { showLoader: false });
+      }, { showLoader: false, onError: () => { document.getElementById('recap-loader').style.display = 'none'; } });
     }
 
     function changeRecapYear(delta) {
+      if (!currentUser) return;
       recapYear += delta;
       document.getElementById('recapYear').textContent = recapYear;
       fetchMonthlyRecap();
@@ -782,7 +856,20 @@
     function showModal(id) { const el = document.getElementById(id); if (el) new bootstrap.Modal(el).show(); }
     function hideModal(id) { const el = document.getElementById(id); const m = el && bootstrap.Modal.getInstance(el); if (m) m.hide(); }
 
-    function handleDelete(idx) { deleteIdxTemp = idx; const modal = new bootstrap.Modal(document.getElementById('modalConfirm')); modal.show(); }
+    function handleDelete(idx) {
+      deleteIdxTemp = idx;
+      const t = allTrx[idx];
+      const tipeIcon = t.tipe === 'Pemasukan' ? '💵' : t.tipe === 'Transfer' ? '🔄' : '💸';
+      document.getElementById('confirmDeleteTrxDetail').innerHTML = `
+        <div style="margin-bottom:6px;"><strong>${tipeIcon} ${t.tipe}</strong></div>
+        <div>Kategori: <strong>${escapeHtml(t.kat)}</strong></div>
+        <div>Wallet: <strong>${escapeHtml(t.wallet)}</strong></div>
+        <div>Nominal: <strong>Rp ${Number(t.nominal).toLocaleString('id-ID')}</strong></div>
+        <div>Tanggal: <strong>${escapeHtml(t.tgl)}</strong></div>
+        ${t.note ? `<div>Catatan: <em>${escapeHtml(t.note)}</em></div>` : ''}
+      `;
+      showModal('modalConfirm');
+    }
 
     // [API] Eksekusi penghapusan transaksi ke server
     function executeDelete() { if (deleteIdxTemp === null) return; const t = allTrx[deleteIdxTemp]; const modal = bootstrap.Modal.getInstance(document.getElementById('modalConfirm')); modal.hide(); runServer("hapusTransaksi", [t.row, currentUser ? currentUser.id : null], () => { fetchTransactions(); loadWallets(); deleteIdxTemp = null; showToast(); }); }
