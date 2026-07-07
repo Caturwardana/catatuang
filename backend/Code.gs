@@ -1,6 +1,3 @@
-/**
- * Money Tracker Pro v5.0.0 | © 2026 Bayu Wicaksono
- */
 
 let SS;
 let SH_TRX;
