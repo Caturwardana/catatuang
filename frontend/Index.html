@@ -108,13 +108,15 @@
 
 <div id="login-screen" class="container py-4" style="max-width: 480px;">
   <div class="glass-card text-center">
-    <h2 class="fw-800 mb-2">Money Tracker <span style="color:#2563eb">Pro</span></h2>
-    <p class="text-muted small mb-3">Masukkan PIN untuk masuk ke akun Anda</p>
-    <div class="mb-3 text-start">
-      <label class="form-label-custom">PIN</label>
-      <input type="password" class="form-control" id="pinInput" maxlength="6" placeholder="Contoh: 1234">
-    </div>
-    <button class="btn-main" onclick="handleLogin()">MASUK</button>
+    <form onsubmit="handleLogin();return false">
+      <h2 class="fw-800 mb-2">Money Tracker <span style="color:#2563eb">Pro</span></h2>
+      <p class="text-muted small mb-3">Masukkan PIN untuk masuk ke akun Anda</p>
+      <div class="mb-3 text-start">
+        <label class="form-label-custom">PIN</label>
+        <input type="password" class="form-control" id="pinInput" maxlength="6" inputmode="numeric" pattern="[0-9]*" placeholder="Contoh: 1234" autocomplete="off">
+      </div>
+      <button type="submit" class="btn-main">MASUK</button>
+    </form>
   </div>
 </div>
 
@@ -158,7 +160,7 @@
             <select class="form-select" id="wallet" onchange="updateSaldoDisplay()"></select>
           </div>
           <div id="tujuan-area" style="display:none;" class="mb-3"><label class="form-label-custom">Tujuan Transfer</label><select class="form-select" id="walletTujuan"></select></div>
-          <div class="mb-3"><label class="form-label-custom">Nominal</label><input type="text" class="form-control" id="jumlah" oninput="formatRp(this)" placeholder="Rp " required></div>
+          <div class="mb-3"><label class="form-label-custom">Nominal</label><input type="text" class="form-control" id="jumlah" oninput="formatRp(this)" inputmode="numeric" placeholder="Rp " required></div>
           <div class="mb-4"><label class="form-label-custom">Catatan</label><input type="text" class="form-control" id="catatan" placeholder="(Opsional)"></div>
           <button type="submit" class="btn-main" id="btn-submit">SIMPAN TRANSAKSI</button>
         </form>
@@ -206,11 +208,32 @@
       </div>
       <div class="toggle-stats shadow-sm">
         <button id="s-t-Pengeluaran" class="active" onclick="updateSFilter('tipe','Pengeluaran')">Pengeluaran</button>
+        <button id="s-t-VS" onclick="updateSFilter('tipe','VS')">VS</button>
         <button id="s-t-Pemasukan" onclick="updateSFilter('tipe','Pemasukan')">Pemasukan</button>
       </div>
       <div class="glass-card">
         <div style="height:230px; position:relative;"><canvas id="myChart"></canvas></div>
         <div id="cat-list" class="mt-4"></div>
+        <div id="vs-container" class="mt-4" style="display:none;">
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <div style="background:#dcfce7;border-radius:16px;padding:16px;text-align:center;">
+                <div class="small fw-bold text-success">Pemasukan</div>
+                <div class="fw-800" id="vs-pemasukan" style="font-size:1.1rem;color:#16a34a;">Rp 0</div>
+              </div>
+            </div>
+            <div class="col-6">
+              <div style="background:#fee2e2;border-radius:16px;padding:16px;text-align:center;">
+                <div class="small fw-bold text-danger">Pengeluaran</div>
+                <div class="fw-800" id="vs-pengeluaran" style="font-size:1.1rem;color:#dc2626;">Rp 0</div>
+              </div>
+            </div>
+          </div>
+          <div style="text-align:center;padding:12px;border-radius:16px;background:#f1f5f9;">
+            <div class="small fw-bold text-muted">Selisih</div>
+            <div class="fw-800" id="vs-selisih" style="font-size:1.3rem;">Rp 0</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -388,6 +411,7 @@
       } catch (e) {}
 
       document.getElementById('pinInput').value = '';
+      localStorage.setItem('savedPin', pin);
       showAppShell();
       initializeAfterLogin();
     });
@@ -409,6 +433,7 @@
   function logout() {
     currentUser = null;
     invalidateFrontendCache();
+    localStorage.removeItem('savedPin');
     updateCurrentUserDisplay();
     document.getElementById('login-screen').style.display = 'block';
     document.getElementById('app-shell').style.display = 'none';
@@ -423,6 +448,7 @@
     updateCurrentUserDisplay();
     document.getElementById('admin-user-management').style.display = currentUser && currentUser.isAdmin ? 'block' : 'none';
     loadMasterData(() => {
+      toggleUI();
       updateHDate(30);
       updateSDate(30);
     });
@@ -565,17 +591,25 @@
 
   function applyWalletData(wallets) {
     walBalArr = Array.isArray(wallets) ? wallets : [];
+    const walletSelect = document.getElementById('wallet');
+    const walletTargetSelect = document.getElementById('walletTujuan');
+    const prevWallet = walletSelect ? walletSelect.value : null;
+    const prevTarget = walletTargetSelect ? walletTargetSelect.value : null;
     const opts = walBalArr.map(w => {
       const safe = escapeHtml(w.name);
       return `<option value="${safe}">${safe}</option>`;
     }).join('');
-    const walletSelect = document.getElementById('wallet');
-    const walletTargetSelect = document.getElementById('walletTujuan');
     if (walletSelect) {
       walletSelect.innerHTML = opts || `<option value="">Belum ada wallet</option>`;
     }
     if (walletTargetSelect) {
       walletTargetSelect.innerHTML = opts || `<option value="">Belum ada wallet</option>`;
+    }
+    if (walletSelect && prevWallet && Array.from(walletSelect.options).some(o => o.value === prevWallet)) {
+      walletSelect.value = prevWallet;
+    }
+    if (walletTargetSelect && prevTarget && Array.from(walletTargetSelect.options).some(o => o.value === prevTarget)) {
+      walletTargetSelect.value = prevTarget;
     }
     updateSaldoDisplay();
   }
@@ -614,7 +648,48 @@
   function fetchTransactions() { if (!currentUser) return; const cacheKey = `transactions:${currentUser.id}:${JSON.stringify(hF)}`; const cached = getCachedValue(cacheKey); if (cached !== null) { allTrx = cached; curPage = 1; document.getElementById('searchInput').value = ''; searchQuery = ''; renderTrx(); return; } runServer("getTransactions", { ...hF, userId: currentUser.id }, data=>{ allTrx=data; setCachedValue(cacheKey, data, FRONTEND_CACHE_TTL.transactions); curPage=1; document.getElementById('searchInput').value = ''; searchQuery = ''; renderTrx();}, { showLoader: false }); }
   
   // [UI] Render dashboard statistik dan chart donat
-  function fetchDashboard() { if (!currentUser) return; const cacheKey = `dashboard:${currentUser.id}:${JSON.stringify(sF)}`; const cached = getCachedValue(cacheKey); if (cached !== null) { const data = cached; document.getElementById('total-semua-saldo').innerText = "Rp " + data.totalSemua.toLocaleString('id-ID'); document.getElementById('wallet-list').innerHTML = data.walletDetails.map(w => `<div class="d-flex justify-content-between py-2 small fw-bold border-bottom"><span>${escapeHtml(w.name)}</span><span>Rp ${w.balance.toLocaleString('id-ID')}</span></div>`).join(''); const sortK = Object.keys(data.catStats).sort((a, b) => data.catStats[b] - data.catStats[a]); const val = sortK.map(l => data.catStats[l]), col = sortK.map(l => getDynamicColor(l)), tot = data.totalFiltered; if (chartObj) chartObj.destroy(); chartObj = new Chart(document.getElementById('myChart'), { type: 'doughnut', data: { labels: sortK, datasets: [{ data: val, backgroundColor: col, borderWidth: 0 }] }, options: { cutout: '82%', plugins: { legend: { display: false } }, maintainAspectRatio: false }, plugins: [{ beforeDraw: (c) => { const { ctx, width, height } = c; ctx.restore(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = '800 1.1rem Plus Jakarta Sans'; ctx.fillStyle = '#1e293b'; ctx.fillText('Rp ' + tot.toLocaleString('id-ID'), width / 2, height / 2); ctx.save(); } }] }); document.getElementById('cat-list').innerHTML = sortK.map((l, i) => { const p = tot > 0 ? ((val[i] / tot) * 100).toFixed(0) : 0; return `<div class="cat-item"><div class="cat-icon-box" style="background:${col[i]}15; color:${col[i]}">${getDynamicIcon(l)}</div><div class="flex-grow-1"><div class="d-flex justify-content-between"><span class="small fw-bold">${escapeHtml(l)}</span><span class="small fw-bold">Rp ${val[i].toLocaleString('id-ID')}</span></div><div class="progress-wrap"><div class="progress-bar-fill" style="width:${p}%; background:${col[i]}"></div></div></div><div class="ms-3 fw-800 small" style="color:${col[i]}">${p}%</div></div>`; }).join(''); return; } runServer("getDashboardData", { ...sF, userId: currentUser.id }, data=>{ setCachedValue(cacheKey, data, FRONTEND_CACHE_TTL.dashboard); document.getElementById('total-semua-saldo').innerText = "Rp " + data.totalSemua.toLocaleString('id-ID'); document.getElementById('wallet-list').innerHTML = data.walletDetails.map(w => `<div class="d-flex justify-content-between py-2 small fw-bold border-bottom"><span>${escapeHtml(w.name)}</span><span>Rp ${w.balance.toLocaleString('id-ID')}</span></div>`).join(''); const sortK = Object.keys(data.catStats).sort((a, b) => data.catStats[b] - data.catStats[a]); const val = sortK.map(l => data.catStats[l]), col = sortK.map(l => getDynamicColor(l)), tot = data.totalFiltered; if (chartObj) chartObj.destroy(); chartObj = new Chart(document.getElementById('myChart'), { type: 'doughnut', data: { labels: sortK, datasets: [{ data: val, backgroundColor: col, borderWidth: 0 }] }, options: { cutout: '82%', plugins: { legend: { display: false } }, maintainAspectRatio: false }, plugins: [{ beforeDraw: (c) => { const { ctx, width, height } = c; ctx.restore(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = '800 1.1rem Plus Jakarta Sans'; ctx.fillStyle = '#1e293b'; ctx.fillText('Rp ' + tot.toLocaleString('id-ID'), width / 2, height / 2); ctx.save(); } }] }); document.getElementById('cat-list').innerHTML = sortK.map((l, i) => { const p = tot > 0 ? ((val[i] / tot) * 100).toFixed(0) : 0; return `<div class="cat-item"><div class="cat-icon-box" style="background:${col[i]}15; color:${col[i]}">${getDynamicIcon(l)}</div><div class="flex-grow-1"><div class="d-flex justify-content-between"><span class="small fw-bold">${escapeHtml(l)}</span><span class="small fw-bold">Rp ${val[i].toLocaleString('id-ID')}</span></div><div class="progress-wrap"><div class="progress-bar-fill" style="width:${p}%; background:${col[i]}"></div></div></div><div class="ms-3 fw-800 small" style="color:${col[i]}">${p}%</div></div>`; }).join(''); }, { showLoader: false }); }
+  function fetchDashboard() {
+    if (!currentUser) return;
+    if (sF.tipe === 'VS') { fetchDashboardVS(); return; }
+    document.getElementById('cat-list').style.display = 'block';
+    document.getElementById('vs-container').style.display = 'none';
+    const cacheKey = `dashboard:${currentUser.id}:${JSON.stringify(sF)}`;
+    const cached = getCachedValue(cacheKey);
+    const render = (data) => {
+      document.getElementById('total-semua-saldo').innerText = "Rp " + data.totalSemua.toLocaleString('id-ID');
+      document.getElementById('wallet-list').innerHTML = data.walletDetails.map(w => `<div class="d-flex justify-content-between py-2 small fw-bold border-bottom"><span>${escapeHtml(w.name)}</span><span>Rp ${w.balance.toLocaleString('id-ID')}</span></div>`).join('');
+      const sortK = Object.keys(data.catStats).sort((a, b) => data.catStats[b] - data.catStats[a]);
+      const val = sortK.map(l => data.catStats[l]), col = sortK.map(l => getDynamicColor(l)), tot = data.totalFiltered;
+      if (chartObj) chartObj.destroy();
+      chartObj = new Chart(document.getElementById('myChart'), { type: 'doughnut', data: { labels: sortK, datasets: [{ data: val, backgroundColor: col, borderWidth: 0 }] }, options: { cutout: '82%', plugins: { legend: { display: false } }, maintainAspectRatio: false }, plugins: [{ beforeDraw: (c) => { const { ctx, width, height } = c; ctx.restore(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = '800 1.1rem Plus Jakarta Sans'; ctx.fillStyle = '#1e293b'; ctx.fillText('Rp ' + tot.toLocaleString('id-ID'), width / 2, height / 2); ctx.save(); } }] });
+      document.getElementById('cat-list').innerHTML = sortK.map((l, i) => { const p = tot > 0 ? ((val[i] / tot) * 100).toFixed(0) : 0; return `<div class="cat-item"><div class="cat-icon-box" style="background:${col[i]}15; color:${col[i]}">${getDynamicIcon(l)}</div><div class="flex-grow-1"><div class="d-flex justify-content-between"><span class="small fw-bold">${escapeHtml(l)}</span><span class="small fw-bold">Rp ${val[i].toLocaleString('id-ID')}</span></div><div class="progress-wrap"><div class="progress-bar-fill" style="width:${p}%; background:${col[i]}"></div></div></div><div class="ms-3 fw-800 small" style="color:${col[i]}">${p}%</div></div>`; }).join('');
+    };
+    if (cached !== null) { render(cached); return; }
+    runServer("getDashboardData", { ...sF, userId: currentUser.id }, data => { setCachedValue(cacheKey, data, FRONTEND_CACHE_TTL.dashboard); render(data); }, { showLoader: false });
+  }
+
+  function fetchDashboardVS() {
+    if (!currentUser) return;
+    document.getElementById('cat-list').style.display = 'none';
+    document.getElementById('vs-container').style.display = 'block';
+    let outData = null, incData = null;
+    function renderVS() {
+      if (!outData || !incData) return;
+      const totalOut = outData.totalFiltered || 0;
+      const totalInc = incData.totalFiltered || 0;
+      const selisih = totalInc - totalOut;
+      document.getElementById('vs-pemasukan').innerText = 'Rp ' + totalInc.toLocaleString('id-ID');
+      document.getElementById('vs-pengeluaran').innerText = 'Rp ' + totalOut.toLocaleString('id-ID');
+      const selEl = document.getElementById('vs-selisih');
+      selEl.innerText = (selisih >= 0 ? '+' : '') + 'Rp ' + Math.abs(selisih).toLocaleString('id-ID');
+      selEl.style.color = selisih >= 0 ? '#16a34a' : '#dc2626';
+      if (chartObj) chartObj.destroy();
+      chartObj = new Chart(document.getElementById('myChart'), { type: 'doughnut', data: { labels: ['Pemasukan', 'Pengeluaran'], datasets: [{ data: [totalInc, totalOut], backgroundColor: ['#16a34a', '#dc2626'], borderWidth: 0 }] }, options: { cutout: '82%', plugins: { legend: { display: false } }, maintainAspectRatio: false }, plugins: [{ beforeDraw: (c) => { const { ctx, width, height } = c; ctx.restore(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = '800 1.1rem Plus Jakarta Sans'; ctx.fillStyle = '#1e293b'; const label = selisih >= 0 ? 'Surplus' : 'Defisit'; ctx.fillText(label, width / 2, height / 2 - 14); ctx.font = '600 0.85rem Plus Jakarta Sans'; ctx.fillStyle = selisih >= 0 ? '#16a34a' : '#dc2626'; ctx.fillText('Rp ' + Math.abs(selisih).toLocaleString('id-ID'), width / 2, height / 2 + 14); ctx.save(); } }] });
+    }
+    const filterBase = { ...sF, userId: currentUser.id };
+    loadCachedServerData(`dashVS_out:${currentUser.id}:${JSON.stringify(sF)}`, 5000, 'getDashboardData', { ...filterBase, tipe: 'Pengeluaran' }, (d) => { outData = d; renderVS(); }, { showLoader: false });
+    loadCachedServerData(`dashVS_inc:${currentUser.id}:${JSON.stringify(sF)}`, 5000, 'getDashboardData', { ...filterBase, tipe: 'Pemasukan' }, (d) => { incData = d; renderVS(); }, { showLoader: false });
+  }
   
   // [API] Ambil daftar dompet dan saldo untuk dropdown
   function loadWallets(onReady){if (!currentUser) return; loadWalletData(onReady);}
@@ -655,6 +730,8 @@
     const select = document.getElementById('kategori');
     if (!select) return;
 
+    const prevVal = select.value;
+
     if (!Array.isArray(masterData.categories) || !masterData.categories.length) {
       if (currentUser) {
         runServer('getCategories', { userId: currentUser.id }, (cats) => {
@@ -674,6 +751,11 @@
     select.innerHTML = options.length
       ? options.map(k => `<option value="${k}">${escapeHtml(k)}</option>`).join('')
       : `<option value="Lainnya">Lainnya</option>`;
+
+    if (prevVal && options.includes(prevVal)) {
+      select.value = prevVal;
+    }
+
     checkLainnya();
   }
   
@@ -701,7 +783,7 @@
   function updateSDate(d) { document.getElementById('custom-date-S').style.setProperty('display', 'none', 'important'); const t = new Date(), p = new Date(t.getTime() - ((d - 1) * 24 * 60 * 60 * 1000)); sF.start = formatDateLocal(p); sF.end = formatDateLocal(t); [7, 30, 365].forEach(v => { const el = document.getElementById('s-d-' + v); if(el) el.classList.toggle('active', d === v); }); document.getElementById('s-d-custom').classList.remove('active'); fetchDashboard(); }
   
   // [EVENT] Filter statistik berdasarkan tipe transaksi
-  function updateSFilter(k, v) { sF[k] = v; ['Pemasukan', 'Pengeluaran'].forEach(t => { const btn = document.getElementById('s-t-' + t); if(btn) btn.classList.toggle('active', sF.tipe === t); }); fetchDashboard(); }
+  function updateSFilter(k, v) { sF[k] = v; ['Pengeluaran', 'VS', 'Pemasukan'].forEach(t => { const btn = document.getElementById('s-t-' + t); if(btn) btn.classList.toggle('active', sF.tipe === t); }); fetchDashboard(); }
   
   // [UI] Navigasi halaman pada riwayat transaksi
   function changePage(d) { curPage += d; renderTrx(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
@@ -716,7 +798,14 @@
   function downloadCSV() { const table = document.getElementById("table-export"); let csv = []; for (let i = 0; i < table.rows.length; i++) { let row = [], cols = table.rows[i].querySelectorAll("td, th"); for (let j = 0; j < cols.length; j++) row.push('"' + cols[j].innerText.replace(/Rp\s?|(?<=\d)\.(?=\d{3})/g, '').replace(/\n/g, ' ') + '"'); csv.push(row.join(",")); } const blob = new Blob(["\uFEFF" + csv.join("\n")], { type: "text/csv;charset=utf-8;" }); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `Export_${new Date().getTime()}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link); }
 
   // [INIT] Jalankan fungsi inisialisasi saat window dimuat
-  window.onload = () => { setDefaultDate(); updateCurrentUserDisplay(); };
+  function tryAutoLogin() {
+    const savedPin = localStorage.getItem('savedPin');
+    if (savedPin) {
+      document.getElementById('pinInput').value = savedPin;
+      handleLogin();
+    }
+  }
+  window.onload = () => { setDefaultDate(); updateCurrentUserDisplay(); tryAutoLogin(); };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
