@@ -369,6 +369,11 @@
     let loadingTimer = null;
 
     function runServer(method, payload, success, options) {
+      // Auto-inject session token ke setiap payload untuk validasi sesi di server
+      if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        const token = localStorage.getItem('sessionToken');
+        if (token) payload._token = token;
+      }
       const showLoader = options && Object.prototype.hasOwnProperty.call(options, 'showLoader') ? options.showLoader : true;
       const onError = options && typeof options.onError === 'function' ? options.onError : null;
       if (showLoader) {
@@ -603,9 +608,21 @@
 
     function renderMasterData() {
       const list = document.getElementById('master-data-list');
-      const wallets = (masterData.wallets || []).map(w => `<div class="d-flex justify-content-between align-items-center py-1"><span>${escapeHtml(w.name)}</span><span class="fw-bold">Rp ${Number(w.balance || 0).toLocaleString('id-ID')}</span><span><button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="editWalletUI('${escapeHtml(w.name)}')" style="font-size:0.65rem;border-radius:6px" title="Edit">✏️</button> <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="deleteWalletUI('${escapeHtml(w.name)}')" style="font-size:0.65rem;border-radius:6px" title="Hapus">🗑️</button></span></div>`).join('');
-      const cats = (masterData.categories || []).map(c => `<div class="d-flex justify-content-between align-items-center py-1"><span>${escapeHtml(c.name)}</span><span class="text-muted">${escapeHtml(c.type)}</span><span><button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="editCategoryUI('${escapeHtml(c.name)}','${c.type}')" style="font-size:0.65rem;border-radius:6px" title="Edit">✏️</button> <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="deleteCategoryUI('${escapeHtml(c.name)}','${c.type}')" style="font-size:0.65rem;border-radius:6px" title="Hapus">🗑️</button></span></div>`).join('');
-      list.innerHTML = `<div class="mb-3"><div class="small fw-800 text-muted mb-2">Sumber Dana</div>${wallets || '<div class="small text-muted">Belum ada sumber dana</div>'}</div><div><div class="small fw-800 text-muted mb-2">Kategori</div>${cats || '<div class="small text-muted">Belum ada kategori</div>'}</div>`;
+      const wallets = (masterData.wallets || []).map(w => {
+        const used = w.used;
+        const deleteBtn = used ? '' : ` <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="deleteWalletUI('${escapeHtml(w.name)}')" style="font-size:0.65rem;border-radius:6px" title="Hapus">🗑️</button>`;
+        const badge = used ? ` <span style="font-size:0.55rem;color:#94a3b8;font-weight:600;">Terpakai</span>` : '';
+        return `<div class="d-flex justify-content-between align-items-center py-1"><span>${escapeHtml(w.name)}${badge}</span><span class="fw-bold">Rp ${Number(w.balance || 0).toLocaleString('id-ID')}</span><span><button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="editWalletUI('${escapeHtml(w.name)}')" style="font-size:0.65rem;border-radius:6px" title="Edit">✏️</button>${deleteBtn}</span></div>`;
+      }).join('');
+      const makeCat = (c) => {
+        const used = c.used;
+        const deleteBtn = used ? '' : ` <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="deleteCategoryUI('${escapeHtml(c.name)}','${c.type}')" style="font-size:0.65rem;border-radius:6px" title="Hapus">🗑️</button>`;
+        const badge = used ? ` <span style="font-size:0.55rem;color:#94a3b8;font-weight:600;">Terpakai</span>` : '';
+        return `<div class="d-flex justify-content-between align-items-center py-1"><span>${escapeHtml(c.name)}${badge}</span><span><button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="editCategoryUI('${escapeHtml(c.name)}','${c.type}')" style="font-size:0.65rem;border-radius:6px" title="Edit">✏️</button>${deleteBtn}</span></div>`;
+      };
+      const catsOut = (masterData.categories || []).filter(c => c.type === 'Pengeluaran').map(makeCat).join('');
+      const catsInc = (masterData.categories || []).filter(c => c.type === 'Pemasukan').map(makeCat).join('');
+      list.innerHTML = `<div class="mb-3"><div class="small fw-800 text-muted mb-2">Sumber Dana</div>${wallets || '<div class="small text-muted">Belum ada sumber dana</div>'}</div><div class="mb-3"><div class="small fw-800 text-danger mb-2">Kategori Pengeluaran</div>${catsOut || '<div class="small text-muted">Belum ada kategori</div>'}</div><div><div class="small fw-800 text-success mb-2">Kategori Pemasukan</div>${catsInc || '<div class="small text-muted">Belum ada kategori</div>'}</div>`;
     }
 
     let editMasterPending = null;
@@ -614,7 +631,7 @@
     function editWalletUI(name) {
       editMasterPending = { type: 'wallet', oldName: name };
       document.getElementById('editMasterTitle').textContent = 'Edit Sumber Dana';
-      document.getElementById('editMasterLabel').textContent = 'Nama baru:';
+      document.getElementById('editMasterLabel').innerHTML = 'Nama baru <span class="text-muted">(Sumber Dana)</span>:';
       document.getElementById('editMasterInput').value = name;
       showModal('modalEditMaster');
     }
@@ -628,8 +645,9 @@
 
     function editCategoryUI(name, type) {
       editMasterPending = { type: 'kategori', oldName: name, catType: type };
-      document.getElementById('editMasterTitle').textContent = 'Edit Kategori';
-      document.getElementById('editMasterLabel').textContent = 'Nama baru:';
+      const label = type === 'Pemasukan' ? 'Pemasukan' : 'Pengeluaran';
+      document.getElementById('editMasterTitle').innerHTML = `Edit Kategori <span class="text-${type === 'Pemasukan' ? 'success' : 'danger'}">${label}</span>`;
+      document.getElementById('editMasterLabel').innerHTML = `Nama baru <span class="text-muted">(${label})</span>:`;
       document.getElementById('editMasterInput').value = name;
       showModal('modalEditMaster');
     }
@@ -906,7 +924,7 @@
     }
 
     // [API] Eksekusi penghapusan transaksi ke server
-    function executeDelete() { if (deleteIdxTemp === null) return; const t = allTrx[deleteIdxTemp]; const modal = bootstrap.Modal.getInstance(document.getElementById('modalConfirm')); modal.hide(); runServer("hapusTransaksi", [t.row, currentUser ? currentUser.id : null], () => { fetchTransactions(); loadWallets(); deleteIdxTemp = null; showToast(); }); }
+    function executeDelete() { if (deleteIdxTemp === null) return; const t = allTrx[deleteIdxTemp]; const modal = bootstrap.Modal.getInstance(document.getElementById('modalConfirm')); modal.hide(); runServer("hapusTransaksi", { row: t.row }, () => { fetchTransactions(); loadWallets(); deleteIdxTemp = null; showToast(); }); }
 
     // [UX] Kembalikan posisi baris jika aksi dibatalkan
     function resetSlide() { if (deleteIdxTemp !== null) { const card = document.getElementById(`card-${deleteIdxTemp}`); if (card) { card.style.transform = 'translateX(0)'; setTimeout(() => { const wrapper = card.parentElement; wrapper.querySelectorAll('.slide-action').forEach(el => { el.style.opacity = '0'; el.style.visibility = 'hidden'; }); }, 200); } deleteIdxTemp = null; } }
