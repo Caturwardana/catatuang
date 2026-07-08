@@ -1,12 +1,21 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="0; url=https://script.google.com/macros/s/AKfycbzwuJkuYJTe6oP4z4-KZ8sCbY5BfCWkhWhPV_7dAkoJ9nZMHDPvC6B53xHAFlwbafQAiw/exec">
-    <title>Catat Uang</title>
-</head>
-<body>
-    <h1>We are moving!</h1>
-    <p>If the page does not refresh, please <a href="https://script.google.com/macros/s/AKfycbzwuJkuYJTe6oP4z4-KZ8sCbY5BfCWkhWhPV_7dAkoJ9nZMHDPvC6B53xHAFlwbafQAiw/exec">click here to continue</a>.</p>
-</body>
-</html>
+const DEPLOYMENT_ID = "AKfycbzwuJkuYJTe6oP4z4-KZ8sCbY5BfCWkhWhPV_7dAkoJ9nZMHDPvC6B53xHAFlwbafQAiw";
+const REDIRECT_URL = `https://script.google.com/macros/s/${DEPLOYMENT_ID}/exec`;
+
+const btn = document.getElementById("continueBtn");
+btn.href = REDIRECT_URL;
+
+// redirect otomatis
+setTimeout(() => {
+    window.location.replace(REDIRECT_URL);
+}, 1000);
+
+// jika masih berada di halaman ini setelah 4 detik,
+// tampilkan pesan bantuan.
+setTimeout(() => {
+    document.getElementById("status").innerHTML = `
+        <div class="warning">
+            <strong>⚠ Redirect memakan waktu lebih lama.</strong><br>
+            Silakan tekan tombol <b>Buka Aplikasi</b> di bawah.
+        </div>
+    `;
+}, 4000);
