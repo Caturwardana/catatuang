@@ -1,21 +1,206 @@
-const DEPLOYMENT_ID = "AKfycbzwuJkuYJTe6oP4z4-KZ8sCbY5BfCWkhWhPV_7dAkoJ9nZMHDPvC6B53xHAFlwbafQAiw";
-const REDIRECT_URL = `https://script.google.com/macros/s/${DEPLOYMENT_ID}/exec`;
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-const btn = document.getElementById("continueBtn");
-btn.href = REDIRECT_URL;
+<title>💰 Catat Uang</title>
+
+<link rel="icon"
+href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
+
+<style>
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+}
+
+body{
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    overflow:hidden;
+    background:
+        radial-gradient(circle at top left,#16a34a55,transparent 35%),
+        radial-gradient(circle at bottom right,#0ea5e955,transparent 35%),
+        linear-gradient(135deg,#0f172a,#111827,#1e293b);
+}
+
+.card{
+    width:min(430px,92%);
+    padding:35px;
+    text-align:center;
+
+    background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.12);
+    backdrop-filter:blur(18px);
+
+    border-radius:24px;
+
+    box-shadow:
+        0 15px 45px rgba(0,0,0,.35);
+}
+
+.icon{
+    font-size:70px;
+    animation:float 2s ease-in-out infinite;
+}
+
+h1{
+    color:white;
+    margin-top:10px;
+    font-size:2rem;
+}
+
+.subtitle{
+    color:#d1d5db;
+    margin-top:10px;
+    line-height:1.6;
+}
+
+.loader{
+    width:70px;
+    height:70px;
+    margin:30px auto;
+    border-radius:50%;
+    border:6px solid rgba(255,255,255,.15);
+    border-top-color:#22c55e;
+    animation:spin .9s linear infinite;
+}
+
+.status{
+    color:#86efac;
+    font-weight:600;
+    min-height:50px;
+    line-height:1.6;
+}
+
+.button{
+    margin-top:25px;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    gap:10px;
+
+    text-decoration:none;
+
+    background:#22c55e;
+    color:white;
+
+    height:58px;
+    border-radius:15px;
+
+    font-weight:700;
+    font-size:18px;
+
+    transition:.25s;
+}
+
+.button:hover{
+    transform:translateY(-3px);
+    box-shadow:0 12px 30px rgba(34,197,94,.4);
+}
+
+.footer{
+    margin-top:22px;
+    color:#94a3b8;
+    font-size:13px;
+    word-break:break-word;
+}
+
+@keyframes spin{
+    to{transform:rotate(360deg);}
+}
+
+@keyframes float{
+    50%{
+        transform:translateY(-8px);
+    }
+}
+
+@media(max-width:500px){
+
+.card{
+padding:28px;
+}
+
+h1{
+font-size:1.7rem;
+}
+
+.button{
+font-size:17px;
+}
+
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+
+<div class="icon">💰</div>
+
+<h1>Catat Uang</h1>
+
+<p class="subtitle">
+Sedang membuka aplikasi...
+</p>
+
+<div class="loader"></div>
+
+<div class="status" id="status">
+Menyiapkan redirect otomatis...
+</div>
+
+<a id="openBtn" class="button" href="#">
+🚀 Buka Aplikasi
+</a>
+
+<div class="footer">
+Tujuan:<br>
+<span id="url"></span>
+</div>
+
+</div>
+
+<script>
+
+// ===========================
+// GANTI INI SAJA
+// ===========================
+const DEPLOYMENT_ID="AKfycbzwuJkuYJTe6oP4z4-KZ8sCbY5BfCWkhWhPV_7dAkoJ9nZMHDPvC6B53xHAFlwbafQAiw";
+// ===========================
+
+const REDIRECT_URL=`https://script.google.com/macros/s/${DEPLOYMENT_ID}/exec`;
+
+document.getElementById("openBtn").href=REDIRECT_URL;
+document.getElementById("url").textContent=REDIRECT_URL;
 
 // redirect otomatis
-setTimeout(() => {
+setTimeout(()=>{
     window.location.replace(REDIRECT_URL);
-}, 1000);
+},1000);
 
-// jika masih berada di halaman ini setelah 4 detik,
-// tampilkan pesan bantuan.
-setTimeout(() => {
-    document.getElementById("status").innerHTML = `
-        <div class="warning">
-            <strong>⚠ Redirect memakan waktu lebih lama.</strong><br>
-            Silakan tekan tombol <b>Buka Aplikasi</b> di bawah.
-        </div>
-    `;
-}, 4000);
+// jika masih di halaman ini setelah 3 detik
+setTimeout(()=>{
+    document.getElementById("status").innerHTML=
+    "⏳ Redirect membutuhkan waktu lebih lama dari biasanya.<br>Silakan tekan tombol <b>Buka Aplikasi</b>.";
+},3000);
+
+// jika setelah 8 detik masih belum pindah
+setTimeout(()=>{
+    document.querySelector(".loader").style.display="none";
+
+    document.getElementById("status").innerHTML=
+    "⚠️ Tidak berhasil membuka aplikasi secara otomatis.<br><br>Kemungkinan penyebab:<br><br>• Koneksi internet lambat<br>• Google Apps Script sedang sibuk<br>• Browser memblokir redirect<br><br>Silakan tekan tombol <b>Buka Aplikasi</b>.";
+},8000);
+
+</script>
+
+</body>
+</html>
